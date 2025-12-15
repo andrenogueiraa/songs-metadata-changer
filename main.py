@@ -1,7 +1,12 @@
 import os
 import re
 import threading
+import threading
 import sys
+import sys
+import pygame # pygame-ce
+import sv_ttk
+from PIL import Image, ImageTk
 from mutagen.easyid3 import EasyID3
 from mutagen.mp3 import MP3
 from mutagen.id3 import ID3, ID3NoHeaderError
@@ -66,14 +71,47 @@ class LogicMixin:
                     }
         return None
 
+    def resource_path(self, relative_path):
+        """ Get absolute path to resource, works for dev and for PyInstaller """
+        try:
+            # PyInstaller creates a temp folder and stores path in _MEIPASS
+            base_path = sys._MEIPASS
+        except Exception:
+            base_path = os.path.abspath(".")
+
+        return os.path.join(base_path, relative_path)
+
+    def on_closing(self):
+        try:
+            pygame.mixer.music.stop()
+            pygame.mixer.quit()
+        except:
+            pass
+        self.root.destroy()
+        sys.exit()
+
 class MusicMetadataEditor(LogicMixin):
     def __init__(self, root):
         self.root = root
         self.root.title("Organizador de Músicas")
-        self.root.geometry("1400x700")
+        self.root.geometry("1400x900")
+        
+        # Apply Theme
+        sv_ttk.set_theme("dark")
+        
+        # Load Icons
+        self.icons = {}
+        self._load_icons()
 
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        
         # Store file paths and metadata
         self.file_data = {}  # Maps file_path to metadata dict
+        self.shown_file_paths = [] # List of file paths currently in the table (for sorting/filtering)
+        self.sort_column_active = None
+        self.sort_reverse = False
+
+        # Metadata fields to display
 
         # Metadata fields to display
         self.metadata_fields = ['title', 'artist', 'album', 'tracknumber', 'genre', 'date',
@@ -101,6 +139,24 @@ class MusicMetadataEditor(LogicMixin):
         btn_browse = ttk.Button(frame_select, text="Selecionar Pasta", command=self.browse_folder)
         btn_browse.pack(side=tk.LEFT)
 
+        # Filter Frame
+        frame_filter = ttk.Frame(main_frame)
+        frame_filter.pack(fill=tk.X, pady=(0, 10))
+        
+        ttk.Label(frame_filter, text="Filtrar por:").pack(side=tk.LEFT, padx=(0, 5))
+        
+        self.filter_col_var = tk.StringVar(value="Todos")
+        filter_options = ["Todos", "Nome do Arquivo"] + [f.capitalize() for f in self.metadata_fields]
+        self.combo_filter = ttk.Combobox(frame_filter, textvariable=self.filter_col_var, values=filter_options, state="readonly", width=15)
+        self.combo_filter.pack(side=tk.LEFT, padx=(0, 10))
+        
+        self.filter_text = tk.StringVar()
+        self.filter_text.trace("w", self._on_filter_change)
+        entry_filter = ttk.Entry(frame_filter, textvariable=self.filter_text, width=40)
+        entry_filter.pack(side=tk.LEFT, padx=(0, 10))
+        
+        ttk.Button(frame_filter, text="Limpar", command=lambda: self.filter_text.set("")).pack(side=tk.LEFT)
+
         # Table Frame with scrollbars
         table_frame = ttk.Frame(main_frame)
         table_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
@@ -110,15 +166,15 @@ class MusicMetadataEditor(LogicMixin):
         self.tree = ttk.Treeview(table_frame, columns=columns, show='headings', selectmode='browse')
 
         # Configure column headings and widths
-        self.tree.heading('filename', text='Nome do Arquivo')
+        self.tree.heading('filename', text='Nome do Arquivo', command=lambda: self.sort_column('filename'))
         self.tree.column('filename', width=200, minwidth=150)
 
-        self.tree.heading('path', text='Caminho')
+        self.tree.heading('path', text='Caminho', command=lambda: self.sort_column('path'))
         self.tree.column('path', width=300, minwidth=200)
 
         for field in self.metadata_fields:
             display_name = field.replace('tracknumber', 'Track #').title()
-            self.tree.heading(field, text=display_name)
+            self.tree.heading(field, text=display_name, command=lambda f=field: self.sort_column(f))
             self.tree.column(field, width=120, minwidth=80)
 
         # Scrollbars
@@ -162,6 +218,90 @@ class MusicMetadataEditor(LogicMixin):
         self.btn_remove_metadata = ttk.Button(button_frame, text="Remover Todos os Metadados",
                                              command=self.remove_metadata_for_all)
         self.btn_remove_metadata.pack(side=tk.LEFT)
+
+        # Music Player Frame (Bottom)
+        self.dataset_player_ui(main_frame)
+    
+    def _load_icons(self):
+        # Load PNG icons using Pillow for scaling and stability
+        icon_size = (24, 24)
+        control_size = (32, 32)
+        try:
+            self.icons['play'] = ImageTk.PhotoImage(Image.open(self.resource_path("icons/play.png")).resize(control_size, Image.Resampling.LANCZOS))
+            self.icons['pause'] = ImageTk.PhotoImage(Image.open(self.resource_path("icons/pause.png")).resize(control_size, Image.Resampling.LANCZOS))
+            self.icons['next'] = ImageTk.PhotoImage(Image.open(self.resource_path("icons/next.png")).resize(control_size, Image.Resampling.LANCZOS))
+            self.icons['prev'] = ImageTk.PhotoImage(Image.open(self.resource_path("icons/prev.png")).resize(control_size, Image.Resampling.LANCZOS))
+            self.icons['volume'] = ImageTk.PhotoImage(Image.open(self.resource_path("icons/volume.png")).resize((20, 20), Image.Resampling.LANCZOS))
+            
+            # Additional icons if available
+            shuffle_path = self.resource_path("icons/shuffle.png")
+            if os.path.exists(shuffle_path):
+                 self.icons['shuffle'] = ImageTk.PhotoImage(Image.open(shuffle_path).resize(control_size, Image.Resampling.LANCZOS))
+            
+            repeat_path = self.resource_path("icons/repeat.png")
+            if os.path.exists(repeat_path):
+                 self.icons['repeat'] = ImageTk.PhotoImage(Image.open(repeat_path).resize(control_size, Image.Resampling.LANCZOS))
+                 
+        except Exception as e:
+            print(f"Error loading icons: {e}")
+
+    def dataset_player_ui(self, parent):
+        pygame.mixer.init()
+        
+        player_frame = ttk.Frame(parent, padding=15, style="Card.TFrame") # Style implied by sv_ttk usually
+        player_frame.pack(fill=tk.X, side=tk.BOTTOM, pady=(10, 0))
+        
+        # Song Info (Left)
+        info_frame = ttk.Frame(player_frame, width=250)
+        info_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 20))
+        
+        self.lbl_player_title = ttk.Label(info_frame, text="Nenhuma música selecionada", font=("Segoe UI", 11, "bold"))
+        self.lbl_player_title.pack(anchor="w")
+        self.lbl_player_artist = ttk.Label(info_frame, text="--", font=("Segoe UI", 9))
+        self.lbl_player_artist.pack(anchor="w")
+        
+        # Controls (Center)
+        controls_frame = ttk.Frame(player_frame)
+        controls_frame.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=20)
+        
+        btns_frame = ttk.Frame(controls_frame)
+        btns_frame.pack(pady=(0, 10))
+        
+        # Previous
+        btn_prev = ttk.Button(btns_frame, image=self.icons.get('prev'), command=self.play_prev, style="Icon.TButton")
+        btn_prev.pack(side=tk.LEFT, padx=10)
+        
+        # Play/Pause
+        self.btn_play = ttk.Button(btns_frame, image=self.icons.get('play'), command=self.toggle_play, style="Icon.TButton")
+        self.btn_play.pack(side=tk.LEFT, padx=10)
+        
+        # Next
+        btn_next = ttk.Button(btns_frame, image=self.icons.get('next'), command=self.play_next, style="Icon.TButton")
+        btn_next.pack(side=tk.LEFT, padx=10)
+        
+        self.progress_var = tk.DoubleVar()
+        self.scale_progress = ttk.Scale(controls_frame, from_=0, to=100, orient=tk.HORIZONTAL, variable=self.progress_var, command=self.seek_song)
+        self.scale_progress.pack(fill=tk.X)
+        
+        # Volume (Right)
+        vol_frame = ttk.Frame(player_frame)
+        vol_frame.pack(side=tk.RIGHT, padx=(20, 0))
+        
+        if self.icons.get('volume'):
+            ttk.Label(vol_frame, image=self.icons['volume']).pack(side=tk.LEFT, padx=5)
+        else:
+            ttk.Label(vol_frame, text="Vol").pack(side=tk.LEFT)
+            
+        self.vol_var = tk.DoubleVar(value=50)
+        scale_vol = ttk.Scale(vol_frame, from_=0, to=100, orient=tk.HORIZONTAL, variable=self.vol_var, command=self.set_volume, length=100)
+        scale_vol.pack(side=tk.LEFT)
+        
+        self.current_song_path = None
+        self.is_playing = False
+        self.song_length = 0
+        
+        # Update timer
+        self.root.after(1000, self.update_player_progress)
 
     def browse_folder(self):
         folder_selected = filedialog.askdirectory()
@@ -253,21 +393,26 @@ class MusicMetadataEditor(LogicMixin):
 
     def _populate_table_bulk(self, prepared_data):
         """Populate table with pre-loaded data."""
+        self.shown_file_paths = []
         for file_path, metadata in prepared_data:
             filename = os.path.basename(file_path)
             
             # Store file data
             self.file_data[file_path] = metadata
+            self.shown_file_paths.append(file_path) # Add to displayed list
             
             # Prepare row values
             values = [filename, file_path]
             for field in self.metadata_fields:
                 values.append(metadata.get(field, ''))
             
-            # Insert row
+            # Insert row (only if matching filter - though usually empty on load)
             self.tree.insert('', 'end', iid=file_path, values=values)
             
         self._populate_completed()
+        
+        # If there's a filter/sort active, re-apply it?
+        # For now, just load as is.
 
     def _populate_completed(self):
         """Restore UI state after population."""
@@ -277,80 +422,223 @@ class MusicMetadataEditor(LogicMixin):
         # Re-enable buttons
         self.btn_create_metadata.config(state='normal')
         self.btn_remove_metadata.config(state='normal')
-
-    def _populate_table(self, file_paths):
-        # Legacy method kept for reference/fallback if needed, but replaced by bulk version
-        pass
-
-        """Populate table with files and their metadata."""
-        for file_path in file_paths:
+        
+    def _on_filter_change(self, *args):
+        """Filter the table rows based on input."""
+        filter_txt = self.filter_text.get().lower()
+        col_mode = self.filter_col_var.get()
+        
+        # Clear table
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+            
+        self.shown_file_paths = []
+        
+        for file_path, metadata in self.file_data.items():
+            match = False
             filename = os.path.basename(file_path)
-            metadata = self.read_metadata(file_path)
+            
+            if not filter_txt:
+                match = True
+            elif col_mode == "Todos":
+                # Search everywhere
+                if filter_txt in filename.lower():
+                    match = True
+                else:
+                    for v in metadata.values():
+                        if filter_txt in str(v).lower():
+                            match = True
+                            break
+            elif col_mode == "Nome do Arquivo":
+                if filter_txt in filename.lower():
+                    match = True
+            else:
+                # Specific column
+                col_key = col_mode.lower() # Metadata keys are lower
+                if col_key in metadata and filter_txt in str(metadata[col_key]).lower():
+                    match = True
+            
+            if match:
+                self.shown_file_paths.append(file_path)
+                values = [filename, file_path]
+                for field in self.metadata_fields:
+                    values.append(metadata.get(field, ''))
+                self.tree.insert('', 'end', iid=file_path, values=values)
 
-            # Store file data
-            self.file_data[file_path] = metadata
-
-            # Prepare row values
+    def sort_column(self, col):
+        """Sort table by column."""
+        if self.sort_column_active == col:
+            self.sort_reverse = not self.sort_reverse
+        else:
+            self.sort_reverse = False
+            self.sort_column_active = col
+            
+        # Sort shown_file_paths based on data
+        def sort_key(file_path):
+            if col == 'filename':
+                return os.path.basename(file_path).lower()
+            elif col == 'path':
+                return file_path.lower()
+            else:
+                return self.file_data[file_path].get(col, '').lower()
+        
+        self.shown_file_paths.sort(key=sort_key, reverse=self.sort_reverse)
+        
+        # Refresh table
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+            
+        for file_path in self.shown_file_paths:
+            filename = os.path.basename(file_path)
+            metadata = self.file_data[file_path]
             values = [filename, file_path]
             for field in self.metadata_fields:
                 values.append(metadata.get(field, ''))
-
-            # Insert row
             self.tree.insert('', 'end', iid=file_path, values=values)
+            
+        # Update header arrow (visual only - simplified)
+        heading_text = self.tree.heading(col, "text")
+        # Strip existing arrow
+        heading_text = heading_text.replace(" ▲", "").replace(" ▼", "")
+        arrow = " ▼" if self.sort_reverse else " ▲"
+        self.tree.heading(col, text=heading_text + arrow)
 
-        # Re-enable buttons
-        self.btn_create_metadata.config(state='normal')
-        self.btn_remove_metadata.config(state='normal')
+    def _populate_table(self, file_paths):
+        # Legacy
+        pass
 
     def on_cell_double_click(self, event):
-        """Handle double-click on table cell to enable editing."""
+        """Handle double-click on table cell to enable editing or play song."""
         region = self.tree.identify_region(event.x, event.y)
         if region != 'cell':
             return
-
-        column = self.tree.identify_column(event.x)
+        
         item = self.tree.identify_row(event.y)
+        if not item: return
+        
+        # If user double clicks the filename, start playing
+        column = self.tree.identify_column(event.x)
+        if column == '#1': # Filename column
+             self.play_song_from_id(item)
+             return
 
-        if not item:
-            return
-
-        # Get column index
+        # Editing logic...
         col_index = int(column.replace('#', '')) - 1
         columns = ['filename', 'path'] + self.metadata_fields
-
-        if col_index < 0 or col_index >= len(columns):
-            return
-
+        if col_index < 0 or col_index >= len(columns): return
         col_name = columns[col_index]
+        if col_name in ['filename', 'path']: return
 
-        # Don't allow editing filename or path
-        if col_name in ['filename', 'path']:
-            return
-
-        # Get current value
+        # ... existing edit logic ...
         current_values = list(self.tree.item(item, 'values'))
         current_value = current_values[col_index] if col_index < len(current_values) else ''
-
-        # Get cell bounding box
         bbox = self.tree.bbox(item, column)
-        if not bbox:
-            return
-
-        # Create entry widget for editing
+        if not bbox: return
         self.editing_item = item
         self.editing_column = col_name
         self.edit_entry = ttk.Entry(self.tree)
         self.edit_entry.insert(0, current_value)
         self.edit_entry.select_range(0, tk.END)
         self.edit_entry.focus()
-
-        # Place entry over cell
         self.edit_entry.place(x=bbox[0], y=bbox[1], width=bbox[2], height=bbox[3])
-
-        # Bind events
         self.edit_entry.bind('<Return>', self.on_edit_commit)
         self.edit_entry.bind('<Escape>', self.on_edit_cancel)
         self.edit_entry.bind('<FocusOut>', self.on_edit_commit)
+
+    # --- Player Functions ---
+    def play_song_from_id(self, item_id):
+        file_path = item_id # iid is file_path
+        if file_path and os.path.exists(file_path):
+            self.load_and_play(file_path)
+
+    def load_and_play(self, path):
+        try:
+            pygame.mixer.music.load(path)
+            pygame.mixer.music.play()
+            self.is_playing = True
+            self.current_song_path = path
+            self.btn_play.config(image=self.icons.get('pause')) # Use icon
+            
+            # Update info
+            filename = os.path.basename(path)
+            metadata = self.file_data.get(path, {})
+            title = metadata.get('title', filename)
+            artist = metadata.get('artist', 'Desconhecido')
+            self.lbl_player_title.config(text=title)
+            self.lbl_player_artist.config(text=artist)
+            
+            # Get length
+            audio = MP3(path)
+            self.song_length = audio.info.length
+            self.scale_progress.config(to=self.song_length)
+            
+        except Exception as e:
+            messagebox.showerror("Erro de Reprodução", str(e))
+
+    def toggle_play(self):
+        if not self.current_song_path:
+            # Play first selected
+            selected = self.tree.selection()
+            if selected:
+                self.play_song_from_id(selected[0])
+            elif self.shown_file_paths:
+                self.play_song_from_id(self.shown_file_paths[0])
+            return
+
+        if self.is_playing:
+            pygame.mixer.music.pause()
+            self.is_playing = False
+            self.btn_play.config(image=self.icons.get('play')) # Use icon
+        else:
+            pygame.mixer.music.unpause()
+            self.is_playing = True
+            self.btn_play.config(image=self.icons.get('pause')) # Use icon
+
+    def play_next(self):
+        if not self.current_song_path or not self.shown_file_paths:
+            return
+        try:
+            curr_idx = self.shown_file_paths.index(self.current_song_path)
+            next_idx = (curr_idx + 1) % len(self.shown_file_paths)
+            self.load_and_play(self.shown_file_paths[next_idx])
+            self.tree.selection_set(self.shown_file_paths[next_idx])
+            self.tree.see(self.shown_file_paths[next_idx])
+        except ValueError:
+            pass
+
+    def play_prev(self):
+        if not self.current_song_path or not self.shown_file_paths:
+            return
+        try:
+            curr_idx = self.shown_file_paths.index(self.current_song_path)
+            prev_idx = (curr_idx - 1) % len(self.shown_file_paths)
+            self.load_and_play(self.shown_file_paths[prev_idx])
+            self.tree.selection_set(self.shown_file_paths[prev_idx])
+            self.tree.see(self.shown_file_paths[prev_idx])
+        except ValueError:
+            pass
+
+    def seek_song(self, value):
+        if self.current_song_path:
+            pygame.mixer.music.set_pos(float(value))
+
+    def set_volume(self, value):
+        vol = float(value) / 100
+        pygame.mixer.music.set_volume(vol)
+
+    def update_player_progress(self):
+        if self.is_playing and pygame.mixer.music.get_busy():
+            # Note: get_pos returns millis played since start/play, not absolute pos if seeked on some platforms,
+            # but it is decent for display. Accuracy in pygame seek can be tricky.
+            # Ideally: internal_timer + delta
+            pass
+            # Pygame get_pos is notoriously unreliable for seeking.
+            # Simplified: just auto-advance if not dragging? 
+            # Tkinter scale update might conflict with drag.
+            # For now, let's just create a basic incrementer or rely on user dragging.
+            pass
+        self.root.after(1000, self.update_player_progress)
+
 
     def on_edit_commit(self, event=None):
         """Commit the edit and update the table and file data."""

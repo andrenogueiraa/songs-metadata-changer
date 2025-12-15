@@ -1,2 +1,7 @@
 mutagen
 pyinstaller
+mutagen
+pyinstaller
+pygame-ce
+sv_ttk
+Pillow
