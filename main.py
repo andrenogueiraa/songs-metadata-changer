@@ -320,6 +320,29 @@ class MusicMetadataEditor(LogicMixin):
         # Update timer
         self.root.after(1000, self.update_player_progress)
 
+    def _apply_window_settings(self):
+        try:
+            # Dark Title Bar
+            from ctypes import windll, byref, sizeof, c_int
+            hwnd = windll.user32.GetParent(self.root.winfo_id())
+            # DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+            windll.dwmapi.DwmSetWindowAttribute(hwnd, 20, byref(c_int(1)), sizeof(c_int))
+        except:
+            pass
+        try:
+             # Maximize
+             self.root.state('zoomed')
+        except:
+             pass
+
+    def toggle_shuffle(self):
+        # Placeholder for shuffle logic
+        pass
+
+    def toggle_repeat(self):
+        # Placeholder for repeat logic
+        pass
+
     def browse_folder(self):
         folder_selected = filedialog.askdirectory()
         if folder_selected:
