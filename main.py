@@ -98,6 +98,9 @@ class MusicMetadataEditor(LogicMixin):
         
         # Apply Theme
         sv_ttk.set_theme("dark")
+        self._apply_window_settings()
+        
+        # Load Icons
         
         # Load Icons
         self.icons = {}
@@ -227,20 +230,20 @@ class MusicMetadataEditor(LogicMixin):
         icon_size = (24, 24)
         control_size = (32, 32)
         try:
-            self.icons['play'] = ImageTk.PhotoImage(Image.open(self.resource_path("icons/play.png")).resize(control_size, Image.Resampling.LANCZOS))
-            self.icons['pause'] = ImageTk.PhotoImage(Image.open(self.resource_path("icons/pause.png")).resize(control_size, Image.Resampling.LANCZOS))
+            self.icons['play'] = ImageTk.PhotoImage(Image.open(self.resource_path("icons/play_circle.png")).resize((48, 48), Image.Resampling.LANCZOS))
+            self.icons['pause'] = ImageTk.PhotoImage(Image.open(self.resource_path("icons/pause_circle.png")).resize((48, 48), Image.Resampling.LANCZOS))
             self.icons['next'] = ImageTk.PhotoImage(Image.open(self.resource_path("icons/next.png")).resize(control_size, Image.Resampling.LANCZOS))
             self.icons['prev'] = ImageTk.PhotoImage(Image.open(self.resource_path("icons/prev.png")).resize(control_size, Image.Resampling.LANCZOS))
             self.icons['volume'] = ImageTk.PhotoImage(Image.open(self.resource_path("icons/volume.png")).resize((20, 20), Image.Resampling.LANCZOS))
             
-            # Additional icons if available
+            # Additional icons
             shuffle_path = self.resource_path("icons/shuffle.png")
             if os.path.exists(shuffle_path):
-                 self.icons['shuffle'] = ImageTk.PhotoImage(Image.open(shuffle_path).resize(control_size, Image.Resampling.LANCZOS))
+                 self.icons['shuffle'] = ImageTk.PhotoImage(Image.open(shuffle_path).resize((24, 24), Image.Resampling.LANCZOS))
             
             repeat_path = self.resource_path("icons/repeat.png")
             if os.path.exists(repeat_path):
-                 self.icons['repeat'] = ImageTk.PhotoImage(Image.open(repeat_path).resize(control_size, Image.Resampling.LANCZOS))
+                 self.icons['repeat'] = ImageTk.PhotoImage(Image.open(repeat_path).resize((24, 24), Image.Resampling.LANCZOS))
                  
         except Exception as e:
             print(f"Error loading icons: {e}")
@@ -248,54 +251,68 @@ class MusicMetadataEditor(LogicMixin):
     def dataset_player_ui(self, parent):
         pygame.mixer.init()
         
-        player_frame = ttk.Frame(parent, padding=15, style="Card.TFrame") # Style implied by sv_ttk usually
-        player_frame.pack(fill=tk.X, side=tk.BOTTOM, pady=(10, 0))
+        # Main Player Container
+        player_frame = ttk.Frame(parent, padding=(20, 10))
+        player_frame.pack(fill=tk.X, side=tk.BOTTOM)
         
-        # Song Info (Left)
-        info_frame = ttk.Frame(player_frame, width=250)
-        info_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 20))
+        # --- Row 1: Controls (Centered) ---
+        controls_container = ttk.Frame(player_frame)
+        controls_container.pack(fill=tk.X, pady=(0, 10))
         
-        self.lbl_player_title = ttk.Label(info_frame, text="Nenhuma música selecionada", font=("Segoe UI", 11, "bold"))
-        self.lbl_player_title.pack(anchor="w")
-        self.lbl_player_artist = ttk.Label(info_frame, text="--", font=("Segoe UI", 9))
-        self.lbl_player_artist.pack(anchor="w")
+        # Center controls using a grid or pack with spacers
+        controls_inner = ttk.Frame(controls_container)
+        controls_inner.pack(side=tk.TOP, anchor=tk.CENTER)
         
-        # Controls (Center)
-        controls_frame = ttk.Frame(player_frame)
-        controls_frame.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=20)
+        # Shuffle
+        if 'shuffle' in self.icons:
+             self.btn_shuffle = ttk.Button(controls_inner, image=self.icons['shuffle'], style="Icon.TButton", command=self.toggle_shuffle)
+             self.btn_shuffle.pack(side=tk.LEFT, padx=10)
         
-        btns_frame = ttk.Frame(controls_frame)
-        btns_frame.pack(pady=(0, 10))
+        # Prev
+        self.btn_prev = ttk.Button(controls_inner, image=self.icons['prev'], style="Icon.TButton", command=self.play_prev)
+        self.btn_prev.pack(side=tk.LEFT, padx=10)
         
-        # Previous
-        btn_prev = ttk.Button(btns_frame, image=self.icons.get('prev'), command=self.play_prev, style="Icon.TButton")
-        btn_prev.pack(side=tk.LEFT, padx=10)
-        
-        # Play/Pause
-        self.btn_play = ttk.Button(btns_frame, image=self.icons.get('play'), command=self.toggle_play, style="Icon.TButton")
-        self.btn_play.pack(side=tk.LEFT, padx=10)
+        # Play/Pause (Big Circle)
+        self.btn_play = ttk.Button(controls_inner, image=self.icons['play'], style="Icon.TButton", command=self.toggle_play)
+        self.btn_play.pack(side=tk.LEFT, padx=15)
         
         # Next
-        btn_next = ttk.Button(btns_frame, image=self.icons.get('next'), command=self.play_next, style="Icon.TButton")
-        btn_next.pack(side=tk.LEFT, padx=10)
+        self.btn_next = ttk.Button(controls_inner, image=self.icons['next'], style="Icon.TButton", command=self.play_next)
+        self.btn_next.pack(side=tk.LEFT, padx=10)
+
+        # Repeat
+        if 'repeat' in self.icons:
+             self.btn_repeat = ttk.Button(controls_inner, image=self.icons['repeat'], style="Icon.TButton", command=self.toggle_repeat)
+             self.btn_repeat.pack(side=tk.LEFT, padx=10)
+             
+        # Volume (Right aligned in controls row for now, or could be separate)
+        # Putting it on the far right of the container
+        vol_frame = ttk.Frame(controls_container)
+        vol_frame.place(relx=1.0, rely=0.5, anchor="e")
+        ttk.Label(vol_frame, image=self.icons['volume']).pack(side=tk.LEFT, padx=(0, 5))
+        self.volume_scale = ttk.Scale(vol_frame, from_=0, to=1, orient=tk.HORIZONTAL, command=self.set_volume, length=80)
+        self.volume_scale.set(0.5)
+        self.volume_scale.pack(side=tk.LEFT)
+
+        # --- Row 2: Progress (Full Width) ---
+        progress_container = ttk.Frame(player_frame)
+        progress_container.pack(fill=tk.X)
         
-        self.progress_var = tk.DoubleVar()
-        self.scale_progress = ttk.Scale(controls_frame, from_=0, to=100, orient=tk.HORIZONTAL, variable=self.progress_var, command=self.seek_song)
-        self.scale_progress.pack(fill=tk.X)
+        self.lbl_current_time = ttk.Label(progress_container, text="0:00", font=("Segoe UI", 9))
+        self.lbl_current_time.pack(side=tk.LEFT, padx=(0, 10))
         
-        # Volume (Right)
-        vol_frame = ttk.Frame(player_frame)
-        vol_frame.pack(side=tk.RIGHT, padx=(20, 0))
+        self.seek_var = tk.DoubleVar()
+        self.seek_scale = ttk.Scale(progress_container, from_=0, to=100, variable=self.seek_var, orient=tk.HORIZONTAL, command=self.seek_song)
+        self.seek_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        self.lbl_total_time = ttk.Label(progress_container, text="0:00", font=("Segoe UI", 9))
+        self.lbl_total_time.pack(side=tk.LEFT, padx=(10, 0))
         
-        if self.icons.get('volume'):
-            ttk.Label(vol_frame, image=self.icons['volume']).pack(side=tk.LEFT, padx=5)
-        else:
-            ttk.Label(vol_frame, text="Vol").pack(side=tk.LEFT)
-            
-        self.vol_var = tk.DoubleVar(value=50)
-        scale_vol = ttk.Scale(vol_frame, from_=0, to=100, orient=tk.HORIZONTAL, variable=self.vol_var, command=self.set_volume, length=100)
-        scale_vol.pack(side=tk.LEFT)
-        
+        # Song Info Overlay or Label (Optional, maybe above controls?)
+        # Adding a small label above controls for current song
+        self.lbl_player_title = ttk.Label(player_frame, text="", font=("Segoe UI", 10, "bold"), anchor="center")
+        self.lbl_player_title.pack(side=tk.TOP, before=controls_container, pady=(0, 5))
+
         self.current_song_path = None
         self.is_playing = False
         self.song_length = 0
