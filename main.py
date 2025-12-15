@@ -141,6 +141,16 @@ class MusicMetadataEditor(LogicMixin):
         self.editing_column = None
         self.edit_entry = None
 
+        # Progress Bar and Status Label
+        self.progress_frame = ttk.Frame(main_frame)
+        self.progress_frame.pack(fill=tk.X, pady=(0, 5))
+        
+        self.progress = ttk.Progressbar(self.progress_frame, orient=tk.HORIZONTAL, length=100, mode='determinate')
+        self.progress.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
+        
+        self.lbl_status = ttk.Label(self.progress_frame, text="")
+        self.lbl_status.pack(side=tk.LEFT)
+
         # Action Buttons Frame
         button_frame = ttk.Frame(main_frame)
         button_frame.pack(fill=tk.X)
@@ -198,22 +208,80 @@ class MusicMetadataEditor(LogicMixin):
         # Disable buttons during loading
         self.btn_create_metadata.config(state='disabled')
         self.btn_remove_metadata.config(state='disabled')
+        
+        # Reset progress
+        self.lbl_status.config(text="Procurando arquivos...")
+        self.progress['value'] = 0
+        self.root.update_idletasks()
 
         def load_in_thread():
             files_to_process = []
-
+            
             # Walk through directory
             for root, dirs, files in os.walk(path):
                 for file in files:
                     if file.lower().endswith('.mp3'):
                         files_to_process.append(os.path.join(root, file))
+            
+            total_files = len(files_to_process)
+            if total_files == 0:
+                self.root.after(0, lambda: self.lbl_status.config(text="Nenhum arquivo encontrado."))
+                self.root.after(0, lambda: self._populate_completed())
+                return
 
-            # Update UI in main thread
-            self.root.after(0, lambda: self._populate_table(files_to_process))
+            prepared_data = []
+            
+            for i, file_path in enumerate(files_to_process):
+                # Read metadata
+                metadata = self.read_metadata(file_path)
+                prepared_data.append((file_path, metadata))
+                
+                # Update progress periodically (every 10 files or last one)
+                if i % 10 == 0 or i == total_files - 1:
+                    progress_val = ((i + 1) / total_files) * 100
+                    msg = f"Carregando {i + 1} de {total_files} músicas"
+                    self.root.after(0, lambda v=progress_val, m=msg: self._update_progress(v, m))
+
+            # Update UI in main thread with all data
+            self.root.after(0, lambda: self._populate_table_bulk(prepared_data))
 
         threading.Thread(target=load_in_thread, daemon=True).start()
 
+    def _update_progress(self, value, message):
+        self.progress['value'] = value
+        self.lbl_status.config(text=message)
+
+    def _populate_table_bulk(self, prepared_data):
+        """Populate table with pre-loaded data."""
+        for file_path, metadata in prepared_data:
+            filename = os.path.basename(file_path)
+            
+            # Store file data
+            self.file_data[file_path] = metadata
+            
+            # Prepare row values
+            values = [filename, file_path]
+            for field in self.metadata_fields:
+                values.append(metadata.get(field, ''))
+            
+            # Insert row
+            self.tree.insert('', 'end', iid=file_path, values=values)
+            
+        self._populate_completed()
+
+    def _populate_completed(self):
+        """Restore UI state after population."""
+        self.lbl_status.config(text=f"Total: {len(self.file_data)} músicas carregadas.")
+        self.progress['value'] = 100
+        
+        # Re-enable buttons
+        self.btn_create_metadata.config(state='normal')
+        self.btn_remove_metadata.config(state='normal')
+
     def _populate_table(self, file_paths):
+        # Legacy method kept for reference/fallback if needed, but replaced by bulk version
+        pass
+
         """Populate table with files and their metadata."""
         for file_path in file_paths:
             filename = os.path.basename(file_path)
@@ -353,12 +421,19 @@ class MusicMetadataEditor(LogicMixin):
         # Disable buttons during processing
         self.btn_create_metadata.config(state='disabled')
         self.btn_remove_metadata.config(state='disabled')
+        
+        # Reset progress
+        self.lbl_status.config(text="Processando metadados...")
+        self.progress['value'] = 0
+        self.root.update_idletasks()
 
         def process_in_thread():
             updated_count = 0
             error_count = 0
+            file_list = list(self.file_data.keys())
+            total_files = len(file_list)
 
-            for file_path in list(self.file_data.keys()):
+            for i, file_path in enumerate(file_list):
                 filename = os.path.basename(file_path)
                 parsed = self.parse_filename(filename)
 
@@ -389,12 +464,17 @@ class MusicMetadataEditor(LogicMixin):
                     self.root.after(0, lambda fp=file_path, md=metadata: self._update_table_row(fp, md))
                 else:
                     error_count += 1
+                
+                # Update progress periodically
+                if i % 5 == 0 or i == total_files - 1:
+                    progress_val = ((i + 1) / total_files) * 100
+                    msg = f"Processando {i + 1} de {total_files}..."
+                    self.root.after(0, lambda v=progress_val, m=msg: self._update_progress(v, m))
 
             # Show completion message
+            self.root.after(0, lambda: self._populate_completed())
             self.root.after(0, lambda: messagebox.showinfo("Concluído",
                 f"Metadados criados para {updated_count} arquivo(s).\n{error_count} arquivo(s) com formato não reconhecido."))
-            self.root.after(0, lambda: self.btn_create_metadata.config(state='normal'))
-            self.root.after(0, lambda: self.btn_remove_metadata.config(state='normal'))
 
         threading.Thread(target=process_in_thread, daemon=True).start()
 
@@ -421,12 +501,19 @@ class MusicMetadataEditor(LogicMixin):
         # Disable buttons during processing
         self.btn_create_metadata.config(state='disabled')
         self.btn_remove_metadata.config(state='disabled')
+        
+        # Reset progress
+        self.lbl_status.config(text="Removendo metadados...")
+        self.progress['value'] = 0
+        self.root.update_idletasks()
 
         def process_in_thread():
             success_count = 0
             error_count = 0
+            file_list = list(self.file_data.keys())
+            total_files = len(file_list)
 
-            for file_path in list(self.file_data.keys()):
+            for i, file_path in enumerate(file_list):
                 try:
                     # Load with ID3 (not EasyID3) to delete all tags
                     try:
@@ -449,12 +536,17 @@ class MusicMetadataEditor(LogicMixin):
                     self.root.after(0, lambda fp=file_path: self._clear_table_row(fp))
                 except Exception as e:
                     error_count += 1
+                
+                # Update progress
+                if i % 10 == 0 or i == total_files - 1:
+                    progress_val = ((i + 1) / total_files) * 100
+                    msg = f"Removendo {i + 1} de {total_files}..."
+                    self.root.after(0, lambda v=progress_val, m=msg: self._update_progress(v, m))
 
             # Show completion message
+            self.root.after(0, lambda: self._populate_completed())
             self.root.after(0, lambda: messagebox.showinfo("Concluído",
                 f"Metadados removidos de {success_count} arquivo(s).\n{error_count} erro(s)."))
-            self.root.after(0, lambda: self.btn_create_metadata.config(state='normal'))
-            self.root.after(0, lambda: self.btn_remove_metadata.config(state='normal'))
 
         threading.Thread(target=process_in_thread, daemon=True).start()
 
