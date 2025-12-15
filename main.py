@@ -259,30 +259,35 @@ class MusicMetadataEditor(LogicMixin):
         controls_container = ttk.Frame(player_frame)
         controls_container.pack(fill=tk.X, pady=(0, 10))
         
-        # Center controls using a grid or pack with spacers
+        # Buttons Row
         controls_inner = ttk.Frame(controls_container)
         controls_inner.pack(side=tk.TOP, anchor=tk.CENTER)
         
+        # Style for transparent buttons (Toolbutton usually provides flat look)
+        style = ttk.Style()
+        style.configure("Player.Toolbutton", padding=5)
+        
         # Shuffle
         if 'shuffle' in self.icons:
-             self.btn_shuffle = ttk.Button(controls_inner, image=self.icons['shuffle'], style="Icon.TButton", command=self.toggle_shuffle)
+             self.btn_shuffle = ttk.Button(controls_inner, image=self.icons['shuffle'], style="Player.Toolbutton", command=self.toggle_shuffle)
              self.btn_shuffle.pack(side=tk.LEFT, padx=10)
         
         # Prev
-        self.btn_prev = ttk.Button(controls_inner, image=self.icons['prev'], style="Icon.TButton", command=self.play_prev)
+        self.btn_prev = ttk.Button(controls_inner, image=self.icons['prev'], style="Player.Toolbutton", command=self.play_prev)
         self.btn_prev.pack(side=tk.LEFT, padx=10)
         
         # Play/Pause (Big Circle)
-        self.btn_play = ttk.Button(controls_inner, image=self.icons['play'], style="Icon.TButton", command=self.toggle_play)
+        # Note: Toolbutton might remove the 'circle' click effect if not careful, but requested was removing gray square. 
+        self.btn_play = ttk.Button(controls_inner, image=self.icons['play'], style="Player.Toolbutton", command=self.toggle_play)
         self.btn_play.pack(side=tk.LEFT, padx=15)
         
         # Next
-        self.btn_next = ttk.Button(controls_inner, image=self.icons['next'], style="Icon.TButton", command=self.play_next)
+        self.btn_next = ttk.Button(controls_inner, image=self.icons['next'], style="Player.Toolbutton", command=self.play_next)
         self.btn_next.pack(side=tk.LEFT, padx=10)
 
         # Repeat
         if 'repeat' in self.icons:
-             self.btn_repeat = ttk.Button(controls_inner, image=self.icons['repeat'], style="Icon.TButton", command=self.toggle_repeat)
+             self.btn_repeat = ttk.Button(controls_inner, image=self.icons['repeat'], style="Player.Toolbutton", command=self.toggle_repeat)
              self.btn_repeat.pack(side=tk.LEFT, padx=10)
              
         # Volume (Right aligned in controls row for now, or could be separate)
@@ -308,10 +313,16 @@ class MusicMetadataEditor(LogicMixin):
         self.lbl_total_time = ttk.Label(progress_container, text="0:00", font=("Segoe UI", 9))
         self.lbl_total_time.pack(side=tk.LEFT, padx=(10, 0))
         
-        # Song Info Overlay or Label (Optional, maybe above controls?)
-        # Adding a small label above controls for current song
-        self.lbl_player_title = ttk.Label(player_frame, text="", font=("Segoe UI", 10, "bold"), anchor="center")
-        self.lbl_player_title.pack(side=tk.TOP, before=controls_container, pady=(0, 5))
+        # Song Info Overlay or Label
+        # Adding title and artist labels above controls
+        info_container = ttk.Frame(player_frame)
+        info_container.pack(side=tk.TOP, before=controls_container, pady=(0, 5))
+        
+        self.lbl_player_title = ttk.Label(info_container, text="", font=("Segoe UI", 10, "bold"), anchor="center")
+        self.lbl_player_title.pack(side=tk.TOP)
+        
+        self.lbl_player_artist = ttk.Label(info_container, text="", font=("Segoe UI", 9), anchor="center")
+        self.lbl_player_artist.pack(side=tk.TOP)
 
         self.current_song_path = None
         self.is_playing = False
