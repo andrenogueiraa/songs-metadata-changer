@@ -293,7 +293,7 @@ class MusicMetadataEditor(LogicMixin):
         vol_frame.place(relx=1.0, rely=0.5, anchor="e")
         ttk.Label(vol_frame, image=self.icons['volume']).pack(side=tk.LEFT, padx=(0, 5))
         self.volume_scale = ttk.Scale(vol_frame, from_=0, to=1, orient=tk.HORIZONTAL, command=self.set_volume, length=80)
-        self.volume_scale.set(0.5)
+        self.volume_scale.set(1.0)
         self.volume_scale.pack(side=tk.LEFT)
 
         # --- Row 2: Progress (Full Width) ---
