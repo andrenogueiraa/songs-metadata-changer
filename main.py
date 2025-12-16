@@ -1,8 +1,7 @@
 import os
 import re
+import time
 import threading
-import threading
-import sys
 import sys
 import pygame # pygame-ce
 import sv_ttk
@@ -17,8 +16,6 @@ try:
     from tkinter import filedialog, messagebox, ttk
     GUI_AVAILABLE = True
 except ImportError:
-    GUI_AVAILABLE = False
-
     GUI_AVAILABLE = False
 
 
@@ -621,7 +618,11 @@ class MusicMetadataEditor(LogicMixin):
             # Get length
             audio = MP3(path)
             self.song_length = audio.info.length
-            self.scale_progress.config(to=self.song_length)
+            self.seek_scale.configure(to=self.song_length)
+            
+            # Update total time label
+            self.lbl_total_time.config(text=time.strftime('%M:%S', time.gmtime(self.song_length)))
+
             
         except Exception as e:
             messagebox.showerror("Erro de Reprodução", str(e))
@@ -679,15 +680,16 @@ class MusicMetadataEditor(LogicMixin):
 
     def update_player_progress(self):
         if self.is_playing and pygame.mixer.music.get_busy():
-            # Note: get_pos returns millis played since start/play, not absolute pos if seeked on some platforms,
-            # but it is decent for display. Accuracy in pygame seek can be tricky.
-            # Ideally: internal_timer + delta
-            pass
-            # Pygame get_pos is notoriously unreliable for seeking.
-            # Simplified: just auto-advance if not dragging? 
-            # Tkinter scale update might conflict with drag.
-            # For now, let's just create a basic incrementer or rely on user dragging.
-            pass
+            # Get current position in seconds
+            # get_pos returns ms
+            current_ms = pygame.mixer.music.get_pos()
+            if current_ms >= 0:
+                current_sec = current_ms / 1000.0
+                # If we have a stored start time (for seeking), we might need more logic
+                # But for basic playback:
+                self.seek_var.set(current_sec)
+                self.lbl_current_time.config(text=time.strftime('%M:%S', time.gmtime(current_sec)))
+        
         self.root.after(1000, self.update_player_progress)
 
 
